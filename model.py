@@ -11,7 +11,9 @@ class DAGMM(nn.Module):
         self.fc1 = nn.Linear(118, 60)
         self.fc2 = nn.Linear(60, 30)
         self.fc3 = nn.Linear(30, 10)
-        self.fc4 = nn.Linear(10, z_dim)
+        # --- In DAGMM.__init__ (replace your old fc3/fc4) ---
+        self.fc_mean  = nn.Linear(10, z_dim)
+        self.fc_logvar= nn.Linear(10, z_dim)
 
         #Decoder network
         self.fc5 = nn.Linear(z_dim, 10)
@@ -23,11 +25,22 @@ class DAGMM(nn.Module):
         self.fc9 = nn.Linear(z_dim+2, 10)
         self.fc10 = nn.Linear(10, n_gmm)
 
+    # --- New method in DAGMM ---
+    def reparameterize(self, mu, logvar):
+        """Reparameterization trick to sample from N(mu, var)"""
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+
     def encode(self, x):
         h = torch.tanh(self.fc1(x))
         h = torch.tanh(self.fc2(h))
         h = torch.tanh(self.fc3(h))
-        return self.fc4(h)
+        mu     = self.fc_mean(h)
+        logvar = self.fc_logvar(h)
+        z      = self.reparameterize(mu, logvar)
+        return mu, logvar, z
 
     def decode(self, x):
         h = torch.tanh(self.fc5(x))
@@ -44,10 +57,12 @@ class DAGMM(nn.Module):
         cosine_similarity = F.cosine_similarity(x, x_hat, dim=1)
         return relative_euclidean_distance, cosine_similarity
     
+
+    # --- Modified forward (now returns VAE params too) ---
     def forward(self, x):
-        z_c = self.encode(x)
+        mu, logvar, z_c = self.encode(x)
         x_hat = self.decode(z_c)
         rec_1, rec_2 = self.compute_reconstruction(x, x_hat)
         z = torch.cat([z_c, rec_1.unsqueeze(-1), rec_2.unsqueeze(-1)], dim=1)
         gamma = self.estimate(z)
-        return z_c, x_hat, z, gamma
+        return mu, logvar, z_c, x_hat, z, gamma

@@ -6,22 +6,35 @@ import numpy as np
 
 
 class ComputeLoss:
-    def __init__(self, model, lambda_energy, lambda_cov, device, n_gmm):
-        self.model = model
-        self.lambda_energy = lambda_energy
-        self.lambda_cov = lambda_cov
-        self.device = device
-        self.n_gmm = n_gmm
+    def __init__(self, model, lambda_energy, lambda_cov, lambda_kl, device, n_gmm):
+        self.model        = model
+        self.lambda_energy= lambda_energy
+        self.lambda_cov   = lambda_cov
+        self.lambda_kl    = lambda_kl
+        self.device       = device
+        self.n_gmm        = n_gmm
     
-    def forward(self, x, x_hat, z, gamma):
-        """Computing the loss function for DAGMM."""
-        reconst_loss = torch.mean((x-x_hat).pow(2))
+    def forward(self, x, mu, logvar, x_hat, z, gamma):
+        """Computing the loss function for DAGMM + VAE."""
+        # reconstruction MSE
+        reconst_loss = torch.mean((x - x_hat).pow(2))
 
+        # VAE KL divergence
+        # KL = -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
+        kl_div = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+
+        # DAGMM “energy” terms
         sample_energy, cov_diag = self.compute_energy(z, gamma)
 
-        loss = reconst_loss + self.lambda_energy * sample_energy + self.lambda_cov * cov_diag
-        return Variable(loss, requires_grad=True)
-    
+        loss = (
+            reconst_loss
+          + self.lambda_kl    * kl_div
+          + self.lambda_energy* sample_energy
+          + self.lambda_cov   * cov_diag
+        )
+
+        return loss
+
     def compute_energy(self, z, gamma, phi=None, mu=None, cov=None, sample_mean=True):
         """Computing the sample energy function"""
         if (phi is None) or (mu is None) or (cov is None):
